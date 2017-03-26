@@ -1,6 +1,6 @@
 const spider = require('./spider')
 const moviedb = require('./db/moviedb')
-var mongo_host = 'mongodb://172.17.0.2:27017/douban';
+var mongo_host = 'mongodb://mongo:27017/douban';
 
 
 async function worker(tags, proxys) {
