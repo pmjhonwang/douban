@@ -15,15 +15,8 @@ class Spider {
     this.useProxy = useProxy
     this.proxys = proxys || []
     this.proxy = "http://58.52.201.118:8080"
+    this.proxyState = {}
     this.set = this.set.bind(this)
-
-    process.on('exit', (code) => {
-      if (code == 0) {
-        console.log("Done", this.tag, this.start)
-        return
-      }
-      console.log("exit", this.tag, this.start)
-    })
   }
 
   set(tags, tag, start) {
@@ -56,7 +49,6 @@ class Spider {
   }
 
   fetchWithProxy() {
-    console.log(this.tag, this.start, this.proxy)
     return new Promise((resolve, reject) => {
       request
         .get(this.url)
@@ -69,14 +61,16 @@ class Spider {
         })
         .proxy(this.proxy)
         .timeout({
-          response: 20000, // Wait 20 seconds for the server to start sending,
-          deadline: 60000, // but allow 1 minute for the file to finish loading.
+          response: 10000, // Wait 20 seconds for the server to start sending,
+          deadline: 20000, // but allow 1 minute for the file to finish loading.
         })
         .end((err, res) => {
           if (err) {
             reject(err)
             return
           }
+
+          delete this.proxyState[this.proxy]
           resolve(res)
         })
     })
@@ -84,13 +78,18 @@ class Spider {
 
   insertOne(col, movie) {
     return new Promise((resolve, reject) => {
-      col.insert(movie, (err) => {
+
+      let cond = {
+        id: movie.id
+      }
+
+      let option = {
+        upsert: true
+      }
+
+      col.update(cond, movie, option, (err) => {
         if (err) {
-          if (err.code == 11000) {
-            console.log(`dumplicate id ${movie.id}, title ${movie.title}`)
-          } else {
-            console.log("insert movie error", err.message)
-          }
+          reject(err)
         }
         resolve()
       })
@@ -119,18 +118,18 @@ class Spider {
 
   async next() {
     this.start += 20
-    // await this.sleep(0.3)
+      // await this.sleep(0.3)
     this.run()
   }
 
   async nextTag() {
     this.start = 0
     this.tagIndex++
-    this.tag = this.tags[this.tagIndex]
-    if (this.tag){
+      this.tag = this.tags[this.tagIndex]
+    if (this.tag) {
       this.run()
     } else {
-      process.exit(0)
+      console.log("Done")
     }
   }
 
@@ -151,16 +150,32 @@ class Spider {
       await this.insert(this.db, movies.subjects)
       this.next()
     } catch (err) {
-      console.log("err", err)
       if (this.useProxy) {
-          let proxy = this.proxys.shift()
+        if (this.proxyState[this.proxy] == undefined) {
+          this.proxyState[this.proxy] = 1
+        } else {
+          this.proxyState[this.proxy]++
+        }
+
+        let failCount = this.proxyState[this.proxy]
+        console.log(this.tag, this.start, this.proxy, failCount)
+        let proxy = this.proxys.shift()
+
+        if (!proxy) {
+          console.log("no proxy left")
+          process.exit(0)
+        }
+
+        if (failCount < 5) {
           this.proxys.push(proxy)
-          this.proxy = `${this.protocol}://${proxy}`
-          console.log("updateProxy", this.proxy)
-          this.run()
+        }
+
+        this.proxy = `${this.protocol}://${proxy}`
       } else {
-        process.exit(1)
+        await this.sleep(30)
       }
+
+      this.run()
     }
   }
 }
